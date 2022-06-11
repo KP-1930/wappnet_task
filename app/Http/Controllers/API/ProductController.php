@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\API\BaseController as BaseController;
 use App\Models\Product;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Validator;
 
 class ProductController extends BaseController
@@ -88,5 +89,11 @@ class ProductController extends BaseController
         $product->delete();
    
         return $this->sendResponse([], 'Product deleted successfully.');
+    }
+
+    public function searchByname($name)
+    {
+        $searchByName = product::where('name','like','%'.$name.'%')->get();
+        return $this->sendResponse($searchByName, 'Product Name retrived successfully.');                
     }
 }

@@ -7,6 +7,11 @@ use Validator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Password;
+use App\Models\User;
+use App\Models\OtpVerification;
+use \Carbon\Carbon;
+
+
 
 class LoginController extends BaseController
 {
@@ -33,38 +38,105 @@ class LoginController extends BaseController
         } 
     }
 
-    public function logout(Request $request){
-        $token = $request->user()->token();
-        $token->revoke();
-        $response = ["message" => "Successfully Logout!!!"];
-        return response($response,200);
+    public function logout(){   
+        if (auth()->user()->tokens()->delete()) {
+			return $this->sendResponse('success', 'User logout successfully.');
 
+		} else {
+			return $this->sendError('Error', ['error' => 'User logout error.']);
+
+		}
     }
 
-    public function forgot() {
-        $credentials = request()->validate(['email' => 'required|email']);
-
-        Password::sendResetLink($credentials);
-
-        return response()->json(["msg" => 'Reset password link sent on your email id.']);
-    }
-
-    public function reset() {
-        $credentials = request()->validate([
+    public function forgotPassword(Request $request)
+    {
+        $input = $request->all();
+        $validator = Validator::make($input, [
             'email' => 'required|email',
-            'token' => 'required|string',
-            'password' => 'required|string|confirmed'
+
         ]);
-
-        $reset_password_status = Password::reset($credentials, function ($user, $password) {
-            $user->password = $password;
-            $user->save();
-        });
-
-        if ($reset_password_status == Password::INVALID_TOKEN) {
-            return response()->json(["msg" => "Invalid token provided"], 400);
+        if ($validator->fails()) {
+            return $this->sendError('Validation Error.', $validator->errors());                   
         }
 
-        return response()->json(["msg" => "Password has been successfully changed"]);
+        $user = User::where(['email' => $request->email])->first();
+        if (empty($user)) {
+            return $this->sendError('User Not Found');
+        }
+
+        $otp = random_int(1000, 9999);
+        OtpVerification::where('email', $input['email'])->delete();
+        $OtpVerification = new OtpVerification;
+        $OtpVerification->otp = $otp;
+        $OtpVerification->user_id = $user->id;
+        $OtpVerification->email = $input['email'];
+        $OtpVerification->is_used = 0;
+        $OtpVerification->created_at = Carbon::now();
+        $OtpVerification->updated_at = Carbon::now();
+        if ($OtpVerification->save()) {
+            $success_data['email'] = $OtpVerification->email;
+            $success_data['otp'] = $OtpVerification->otp;                        
+            return $this->sendResponse($success_data, 'Otp Sent.');
+        } else {
+
+            return $this->sendError('OTP NOT Generated.');
+        }
     }
+
+    public function forgotPasswordVerifyOtp(Request $request)
+    {
+        $input = $request->all();
+        $validator = Validator::make($input, [
+            'email' => 'required|email',
+            'otp' => 'required|digits:4',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->sendError('Validation Error.', $validator->errors());                               
+        }
+
+        $getOTP = OtpVerification::where('email', $request->email)->first();
+        if (isset($getOTP->otp)) {
+            if ($getOTP->otp == $request->otp) {
+                $user = User::where(['email' => $getOTP->email])->first();
+                if (empty($user)) {
+                    return $this->sendError('User Not Found');
+                }
+                $success_data['id'] = $user->id;                
+                $success_data['email'] = $user->email;                
+                OtpVerification::where('email', $user->email)->delete();
+                return $this->sendResponse($success_data, 'OTP Verified successfully.');
+            } else {
+                return $this->sendError('OTP Not Found');
+            }
+        } else {
+            return $this->sendError('Need to resend OTP');
+        }
+    }
+
+    public function resetPassword(Request $request)
+    {
+        $input = $request->all();
+        $validator = Validator::make($request->all(), [
+            'id' => 'required|numeric|gt:0',
+            'password' => 'required',            
+        ]);
+
+        if ($validator->fails()) {
+            return $this->sendError('Validation Error.', $validator->errors());                                          
+        }
+
+        $editdata = array('password' => bcrypt($input['password']));
+        $res = User::where('id', $input['id'])->update($editdata);
+        if ($res) {
+            $user = User::find($input['id']);
+            $success_data['name'] = $user->name;
+            $success_data['id'] = $user->id;
+            $success_data['email'] = $user->email;            
+            return $this->sendResponse($success_data, 'User Password Updated successfully.');
+        }
+    }
+
+  
+
 }
